@@ -16,7 +16,9 @@ export async function processJob(jobId: string): Promise<void> {
   const processedPlayers = await Promise.all(
     job.players.map(async (player) => {
       const ext = path.extname(player.clipPath);
-      const processedPath = player.clipPath.replace(ext, `_processed${ext}`);
+      const dir = path.dirname(player.clipPath);
+      const base = path.basename(player.clipPath, ext);
+      const processedPath = path.join(dir, "_processed", `${base}${ext}`);
       await backgroundRemoval.removeBackground(player.clipPath, processedPath);
       return { ...player, processedClipPath: processedPath };
     })

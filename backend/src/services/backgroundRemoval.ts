@@ -1,4 +1,5 @@
 import fs from "fs";
+import path from "path";
 
 // ── Interface ─────────────────────────────────────────────────────────────────
 // To swap providers: implement this interface and change the export below.
@@ -14,6 +15,7 @@ export interface BackgroundRemovalService {
 const mockService: BackgroundRemovalService = {
   async removeBackground(inputPath: string, outputPath: string): Promise<void> {
     await new Promise((r) => setTimeout(r, 2000)); // simulate latency
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.copyFileSync(inputPath, outputPath);
     console.log(`[BG-REMOVAL] mock: copied ${inputPath} → ${outputPath}`);
   },
