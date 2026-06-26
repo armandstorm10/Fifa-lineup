@@ -1,0 +1,23 @@
+{
+  "name": "@lineupai/remotion",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render LineupIntro out/intro.mp4"
+  },
+  "dependencies": {
+    "@lineupai/shared": "*",
+    "@remotion/cli": "^4.0.185",
+    "remotion": "^4.0.185",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.4.5"
+  },
+  "remotion": {
+    "entryPoint": "src/index.ts"
+  }
+}
