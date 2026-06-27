@@ -42,18 +42,23 @@ function standardizeMp4(inputPath: string, outputPath: string): void {
   );
 }
 
-// Chroma-key the green out of RVM's green-screen output and encode a VP9 WebM with
-// an alpha plane (yuva420p) that Remotion's <OffthreadVideo transparent> can overlay.
-function greenScreenToAlphaWebm(greenScreenPath: string, outputPath: string): void {
+// Route B: combine the clean local RGB clip with RVM's alpha-mask matte (a
+// grayscale video: white = foreground) into a VP9 WebM with a real alpha plane
+// (yuva420p) that Remotion's <OffthreadVideo transparent> can overlay. Using the
+// matte as alpha avoids the green-spill/edge artifacts of chroma-keying.
+function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: string): void {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   execFileSync(
     FFMPEG,
     [
       "-y",
-      "-i", greenScreenPath,
-      // RVM's green-screen background is ~pure green (0x00FF00). similarity/blend
-      // can be tuned if edges show spill.
-      "-vf", "chromakey=0x00FF00:0.30:0.10,format=yuva420p",
+      "-i", rgbPath,    // [0] foreground colour
+      "-i", mattePath,  // [1] grayscale matte → alpha
+      // alphamerge takes the luma of the second input as the alpha channel.
+      "-filter_complex",
+      "[0:v]format=rgba[rgb];[rgb][1:v]alphamerge,format=yuva420p[out]",
+      "-map", "[out]",
+      "-map", "0:a?",   // keep original audio if present
       "-c:v", "libvpx-vp9",
       "-pix_fmt", "yuva420p",
       "-b:v", "2M",
@@ -104,12 +109,13 @@ const mockService: BackgroundRemovalService = {
 };
 
 // ── Replicate implementation (arielreplicate/robust_video_matting) ────────────
-// Flow:
+// Route B flow:
 //   1. Standardize the upload to MP4 and place it under /uploads so it has a
 //      public http URL (NOTE: PUBLIC_BASE_URL must be reachable by Replicate —
 //      in local dev use a tunnel such as ngrok; localhost will NOT work).
-//   2. Run the matting model with output_type=green-screen, polling for status.
-//   3. Download the green-screen MP4, chroma-key it to a transparent VP9 WebM.
+//   2. Run the matting model with output_type=alpha-mask, polling for status.
+//   3. Download the matte, alphamerge it with the local RGB clip → transparent
+//      VP9 WebM (no green-spill artifacts).
 //   4. On any failure, fall back to an opaque WebM so the render still succeeds.
 const replicateService: BackgroundRemovalService = {
   async removeBackground(inputPath: string, outputPath: string): Promise<void> {
@@ -122,15 +128,17 @@ const replicateService: BackgroundRemovalService = {
     }
 
     const tmpDir = path.join(UPLOADS_BASE, "_tmp");
-    const inputForReplicate = path.join(tmpDir, `${path.basename(outputPath, ".webm")}_in.mp4`);
-    const greenScreen = path.join(tmpDir, `${path.basename(outputPath, ".webm")}_gs.mp4`);
+    // The standardized clip is BOTH the Replicate input and the RGB source for
+    // alphamerge, so keep it around until after compositing.
+    const rgbClip = path.join(tmpDir, `${path.basename(outputPath, ".webm")}_rgb.mp4`);
+    const matte = path.join(tmpDir, `${path.basename(outputPath, ".webm")}_matte.mp4`);
 
     try {
       const replicate = new Replicate({ auth: token });
 
       // 1. Standardize + publish input
-      standardizeMp4(inputPath, inputForReplicate);
-      const inputUrl = toPublicUrl(inputForReplicate);
+      standardizeMp4(inputPath, rgbClip);
+      const inputUrl = toPublicUrl(rgbClip);
       console.log(`[BG-REMOVAL] replicate: input URL ${inputUrl}`);
 
       // 2. Resolve latest model version, create + poll prediction
@@ -140,7 +148,7 @@ const replicateService: BackgroundRemovalService = {
 
       let prediction = await replicate.predictions.create({
         version: versionId,
-        input: { input_video: inputUrl, output_type: "green-screen" },
+        input: { input_video: inputUrl, output_type: "alpha-mask" },
       });
       console.log(`[BG-REMOVAL] replicate: prediction ${prediction.id} created`);
 
@@ -158,11 +166,11 @@ const replicateService: BackgroundRemovalService = {
         throw new Error(`prediction ${prediction.status}: ${prediction.error ?? "unknown error"}`);
       }
 
-      // 3. Download green-screen output → chroma-key → transparent WebM
+      // 3. Download matte → alphamerge with local RGB → transparent WebM
       const outputUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
       if (typeof outputUrl !== "string") throw new Error("unexpected prediction output shape");
-      await downloadTo(outputUrl, greenScreen);
-      greenScreenToAlphaWebm(greenScreen, outputPath);
+      await downloadTo(outputUrl, matte);
+      alphaMaskToAlphaWebm(rgbClip, matte, outputPath);
       verifyOutput(outputPath, "replicate (transparent)");
     } catch (err) {
       // 4. Graceful fallback — keep the pipeline alive with an opaque clip.
@@ -170,8 +178,8 @@ const replicateService: BackgroundRemovalService = {
       toOpaqueWebm(inputPath, outputPath);
       verifyOutput(outputPath, "fallback (after error)");
     } finally {
-      fs.rmSync(inputForReplicate, { force: true });
-      fs.rmSync(greenScreen, { force: true });
+      fs.rmSync(rgbClip, { force: true });
+      fs.rmSync(matte, { force: true });
     }
   },
 };
