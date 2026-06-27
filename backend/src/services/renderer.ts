@@ -26,6 +26,11 @@ function buildCompositionProps(job: RenderJob): object {
 
 // Returns the local path of the rendered MP4
 export async function renderVideo(job: RenderJob): Promise<string> {
+  // Ensure the output directory exists right before rendering. The module-level
+  // mkdirSync runs once at import time relative to the then-current cwd, which can
+  // differ from the render-time cwd — so re-create defensively here.
+  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
   const outputFile = path.join(OUTPUT_DIR, `${job.id}.mp4`);
   const remotionDir = path.resolve(__dirname, "../../../remotion");
   const bin = remotionBin(remotionDir);
