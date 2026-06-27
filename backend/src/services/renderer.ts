@@ -1,10 +1,17 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { RenderJob } from "@lineupai/shared";
 
 const OUTPUT_DIR = path.resolve(process.env.RENDER_OUTPUT_DIR || "./renders");
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+// Resolve the remotion binary from the remotion workspace's node_modules.
+// Using execFileSync with the direct binary path avoids npx resolution issues on Windows.
+function remotionBin(remotionDir: string): string {
+  const ext = process.platform === "win32" ? ".cmd" : "";
+  return path.join(remotionDir, "node_modules", ".bin", `remotion${ext}`);
+}
 
 // Props passed into the Remotion composition as JSON
 function buildCompositionProps(job: RenderJob): object {
@@ -20,22 +27,22 @@ function buildCompositionProps(job: RenderJob): object {
 // Returns the local path of the rendered MP4
 export async function renderVideo(job: RenderJob): Promise<string> {
   const outputFile = path.join(OUTPUT_DIR, `${job.id}.mp4`);
-  const props = JSON.stringify(buildCompositionProps(job));
   const remotionDir = path.resolve(__dirname, "../../../remotion");
+  const bin = remotionBin(remotionDir);
 
-  // TODO: swap this execSync for a Lambda/Modal invocation in production.
+  const args = [
+    "render",
+    `--config=${path.join(remotionDir, "remotion.config.ts")}`,
+    "LineupIntro",
+    outputFile,
+    `--props=${JSON.stringify(buildCompositionProps(job))}`,
+    "--log=verbose",
+  ];
+
+  // TODO: swap this execFileSync for a Lambda/Modal invocation in production.
   // The props JSON is the contract — the remote renderer receives the same object.
-  const cmd = [
-    `npx remotion render`,
-    `--config=${remotionDir}/remotion.config.ts`,
-    `LineupIntro`,
-    `"${outputFile}"`,
-    `--props='${props}'`,
-    `--log=verbose`,
-  ].join(" ");
-
-  console.log(`[RENDERER] running: ${cmd}`);
-  execSync(cmd, { cwd: remotionDir, stdio: "inherit" });
+  console.log(`[RENDERER] running: ${bin} ${args.join(" ")}`);
+  execFileSync(bin, args, { cwd: remotionDir, stdio: "inherit" });
 
   return outputFile;
 }
