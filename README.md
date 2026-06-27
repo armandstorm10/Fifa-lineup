@@ -20,9 +20,10 @@ Open http://localhost:5173 to use the app end-to-end.
 
 | Variable | Service | Sign up | Status |
 |---|---|---|---|
-| `BG_REMOVAL_PROVIDER` | Background removal | — | **STUBBED** — set to `mock`; no key needed |
-| `RUNWAY_API_KEY` | [Runway ML](https://runwayml.com) | runway.com | Plug in when ready |
-| `UNSCREEN_API_KEY` | [Unscreen](https://unscreen.com) | unscreen.com | Alternative to Runway |
+| `BG_REMOVAL_PROVIDER` | Background removal | — | `mock` (default, no key) or `replicate` (real) |
+| `REPLICATE_API_TOKEN` | [Replicate](https://replicate.com) | replicate.com/account/api-tokens | **REAL** — runs `arielreplicate/robust_video_matting`. Needs a publicly reachable `PUBLIC_BASE_URL` (tunnel in dev) |
+| `RUNWAY_API_KEY` | [Runway ML](https://runwayml.com) | runway.com | Alternative provider (not yet implemented) |
+| `UNSCREEN_API_KEY` | [Unscreen](https://unscreen.com) | unscreen.com | Alternative provider (not yet implemented) |
 | `PAYMENT_PROVIDER` | Payments | — | **STUBBED** — set to `stub`; no key needed |
 | `PAYFAST_MERCHANT_ID` | [PayFast](https://www.payfast.co.za) | payfast.co.za | SA-primary payment gateway |
 | `PAYFAST_MERCHANT_KEY` | PayFast | — | From PayFast dashboard |
@@ -38,7 +39,7 @@ Open http://localhost:5173 to use the app end-to-end.
 
 | Feature | Location | What to do |
 |---|---|---|
-| Background removal | `backend/src/services/backgroundRemoval.ts` | Implement `runwayService` or `unscreenService`, swap export |
+| Background removal | `backend/src/services/backgroundRemoval.ts` | **Real** `replicate` provider available (set `BG_REMOVAL_PROVIDER=replicate`); `mock` is the keyless default |
 | Payments / tier check | `backend/src/services/payment.ts` | Implement `payfastService` or `stripeService`, swap export |
 | Storage | `backend/src/services/storage.ts` | Implement `s3StorageService`, swap export |
 | Job queue | `backend/src/services/queue.ts` | Implement `bullmqQueue`, swap export |
@@ -52,7 +53,7 @@ Open http://localhost:5173 to use the app end-to-end.
 frontend (React/Vite)   →   backend (Express)   →   remotion (render)
                                     ↓
                             services/
-                              backgroundRemoval   (mock → Runway/Unscreen)
+                              backgroundRemoval   (mock | replicate)
                               storage             (local → S3/R2)
                               queue               (memory → BullMQ)
                               payment             (stub → PayFast/Stripe)

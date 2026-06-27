@@ -18,8 +18,9 @@ export async function processJob(jobId: string): Promise<void> {
       const ext = path.extname(player.clipPath);
       const dir = path.dirname(player.clipPath);
       const base = path.basename(player.clipPath, ext);
-      // Always .mp4 — background removal transcodes to a web-playable MP4.
-      const processedPath = path.join(dir, "_processed", `${base}.mp4`);
+      // Always .webm — background removal outputs a VP9 WebM (transparent alpha
+      // when matting succeeds, opaque on fallback).
+      const processedPath = path.join(dir, "_processed", `${base}.webm`);
       await backgroundRemoval.removeBackground(player.clipPath, processedPath);
       return { ...player, processedClipPath: processedPath };
     })
