@@ -74,6 +74,9 @@ export async function renderVideo(job: RenderJob): Promise<string> {
     "LineupIntro",
     `"${outputFile}"`,
     `--props="${propsFile}"`,
+    // Raise the delayRender timeout so OffthreadVideo has time to fetch/decode
+    // the clip over http (default 30s can be tight for larger uploads).
+    "--timeout=120000",
     "--log=verbose",
   ].join(" ");
 

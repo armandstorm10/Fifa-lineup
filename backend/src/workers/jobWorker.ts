@@ -18,7 +18,8 @@ export async function processJob(jobId: string): Promise<void> {
       const ext = path.extname(player.clipPath);
       const dir = path.dirname(player.clipPath);
       const base = path.basename(player.clipPath, ext);
-      const processedPath = path.join(dir, "_processed", `${base}${ext}`);
+      // Always .mp4 — background removal transcodes to a web-playable MP4.
+      const processedPath = path.join(dir, "_processed", `${base}.mp4`);
       await backgroundRemoval.removeBackground(player.clipPath, processedPath);
       return { ...player, processedClipPath: processedPath };
     })
