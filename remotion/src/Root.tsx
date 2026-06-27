@@ -1,3 +1,4 @@
+import React from "react";
 import { Composition } from "remotion";
 import { LineupIntro, lineupIntroSchema } from "./compositions/LineupIntro";
 import { defaultProps } from "./compositions/defaultProps";
