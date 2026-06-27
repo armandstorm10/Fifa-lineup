@@ -20,6 +20,9 @@ function transcodeToWebMp4(inputPath: string, outputPath: string): void {
     throw new Error("ffmpeg-static binary not found — run `npm install`");
   }
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  // execFileSync blocks until ffmpeg exits AND flushes/closes the output file,
+  // so the file is fully written before we return. +faststart moves the moov
+  // atom to the front so OffthreadVideo can stream it without seeking to EOF.
   execFileSync(
     ffmpegStatic,
     [
@@ -34,6 +37,17 @@ function transcodeToWebMp4(inputPath: string, outputPath: string): void {
     ],
     { stdio: "inherit" }
   );
+
+  // Confirm the transcode actually produced a non-empty, readable file before
+  // the pipeline moves on to rendering.
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(`Transcode failed — output not found: ${outputPath}`);
+  }
+  const { size } = fs.statSync(outputPath);
+  if (size === 0) {
+    throw new Error(`Transcode produced an empty file: ${outputPath}`);
+  }
+  console.log(`[BG-REMOVAL] transcode complete: ${outputPath} (${size} bytes, +faststart)`);
 }
 
 // ── Mock implementation ───────────────────────────────────────────────────────

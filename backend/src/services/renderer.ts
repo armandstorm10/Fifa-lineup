@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import { RenderJob } from "@lineupai/shared";
@@ -80,13 +80,25 @@ export async function renderVideo(job: RenderJob): Promise<string> {
     "--log=verbose",
   ].join(" ");
 
-  // TODO: swap this execSync for a Lambda/Modal invocation in production.
+  // TODO: swap this spawn for a Lambda/Modal invocation in production.
   // The props JSON file is the contract — the remote renderer receives the same object.
+  //
+  // IMPORTANT: this MUST be async (spawn, not execSync). The render's headless
+  // browser fetches the uploaded clip over http from THIS same Express server.
+  // execSync would block the Node event loop for the whole render, so the server
+  // couldn't answer that fetch → "server sent no data" timeout. spawn keeps the
+  // loop free to serve the clip while rendering.
   console.log(`[RENDERER] running: ${cmd}`);
   try {
-    // execSync always runs through a shell (cmd.exe on Windows), so the .cmd
-    // shim resolves correctly here — unlike execFileSync, which throws EINVAL.
-    execSync(cmd, { cwd: remotionDir, stdio: "inherit" });
+    await new Promise<void>((resolve, reject) => {
+      // shell: true runs the .cmd shim correctly on Windows.
+      const child = spawn(cmd, { cwd: remotionDir, stdio: "inherit", shell: true });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`remotion render exited with code ${code}`));
+      });
+    });
   } finally {
     fs.rmSync(propsFile, { force: true });
   }
