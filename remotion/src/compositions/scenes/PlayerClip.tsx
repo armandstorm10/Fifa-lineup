@@ -1,4 +1,5 @@
-import { AbsoluteFill, Video, OffthreadVideo, staticFile } from "remotion";
+import React from "react";
+import { AbsoluteFill, OffthreadVideo } from "remotion";
 import { Player, Template } from "@lineupai/shared";
 
 const TEMPLATE_COLORS: Record<Template, { accent: string }> = {
@@ -25,8 +26,9 @@ export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
 
   return (
     <AbsoluteFill style={{ background: "#000" }}>
+      {/* src is an http(s) URL served by the backend — Remotion fetches it. */}
       <OffthreadVideo
-        src={src.startsWith("http") ? src : `file://${src}`}
+        src={src}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
       {/* Accent vignette border */}
