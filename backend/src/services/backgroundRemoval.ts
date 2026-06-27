@@ -67,7 +67,12 @@ function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: st
       `${matteFilter};[0:v]format=rgba[rgb];[rgb][a]alphamerge,format=yuva420p[out]`,
       "-map", "[out]",
       "-map", "0:a?",   // keep original audio if present
-      "-c:v", "libvpx-vp9",
+      // VP8 (libvpx), NOT VP9: ffmpeg's libvpx-vp9 silently drops the alpha
+      // plane (writes yuv420p), so the transparency is lost. VP8 stores alpha
+      // via WebM's AlphaMode side-channel and Remotion's OffthreadVideo reads it.
+      // -auto-alt-ref 0 is required for alpha with libvpx.
+      "-c:v", "libvpx",
+      "-auto-alt-ref", "0",
       "-pix_fmt", "yuva420p",
       "-b:v", "2M",
       "-c:a", "libopus",
@@ -76,31 +81,30 @@ function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: st
     { stdio: "inherit" }
   );
 
-  // Debug: when BG_REMOVAL_DEBUG=1, render the transparent result over a
-  // checkerboard so the subject can be eyeballed (transparent areas show the
-  // pattern, the player should be fully visible/opaque). Saved alongside output.
+  // Debug: when BG_REMOVAL_DEBUG=1, dump artifacts next to the output so the
+  // alpha can be verified directly: (a) the raw matte, (b) the final clip's
+  // recovered alpha plane, (c) the clip composited over a checkerboard.
   if (process.env.BG_REMOVAL_DEBUG === "1") {
-    const debugPath = outputPath.replace(/\.webm$/, ".debug.mp4");
+    const base = outputPath.replace(/\.webm$/, "");
     try {
-      execFileSync(
-        FFMPEG,
-        [
-          "-y",
-          "-f", "lavfi",
-          "-i",
-          "color=c=gray:s=1080x1920,format=rgba," +
-            "geq=lum='if(mod(floor(X/40)+floor(Y/40),2),200,120)':a=255",
-          "-i", outputPath,
-          "-filter_complex", "[0:v][1:v]overlay=shortest=1[out]",
-          "-map", "[out]",
-          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest",
-          debugPath,
-        ],
-        { stdio: "inherit" }
-      );
-      console.log(`[BG-REMOVAL] debug preview written: ${debugPath}`);
+      // (a) raw matte the model returned
+      fs.copyFileSync(mattePath, `${base}.matte.mp4`);
+      // (b) recovered alpha plane of the final webm (white = opaque subject)
+      execFileSync(FFMPEG, ["-y", "-i", outputPath, "-vf", "alphaextract,format=gray",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", `${base}.alpha.mp4`], { stdio: "inherit" });
+      // (c) composite over a checkerboard so the subject can be eyeballed
+      execFileSync(FFMPEG, [
+        "-y",
+        "-f", "lavfi", "-i", "color=c=gray:s=540x960:d=3",
+        "-i", outputPath,
+        "-filter_complex",
+        "[0:v]format=rgba,drawgrid=w=40:h=40:t=1:c=white@0.3[bg];[bg][1:v]overlay=shortest=1[out]",
+        "-map", "[out]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest",
+        `${base}.debug.mp4`,
+      ], { stdio: "inherit" });
+      console.log(`[BG-REMOVAL] debug artifacts: ${base}.matte.mp4 / .alpha.mp4 / .debug.mp4`);
     } catch (e) {
-      console.warn("[BG-REMOVAL] debug preview failed (non-fatal):", e);
+      console.warn("[BG-REMOVAL] debug artifacts failed (non-fatal):", e);
     }
   }
 }
