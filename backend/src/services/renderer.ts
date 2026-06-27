@@ -1,4 +1,4 @@
-import { execFileSync } from "child_process";
+import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { RenderJob } from "@lineupai/shared";
@@ -7,7 +7,7 @@ const OUTPUT_DIR = path.resolve(process.env.RENDER_OUTPUT_DIR || "./renders");
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 // Resolve the remotion binary from the remotion workspace's node_modules.
-// Using execFileSync with the direct binary path avoids npx resolution issues on Windows.
+// On Windows the binary is a .cmd shim, which must be run through a shell.
 function remotionBin(remotionDir: string): string {
   const ext = process.platform === "win32" ? ".cmd" : "";
   return path.join(remotionDir, "node_modules", ".bin", `remotion${ext}`);
@@ -30,19 +30,35 @@ export async function renderVideo(job: RenderJob): Promise<string> {
   const remotionDir = path.resolve(__dirname, "../../../remotion");
   const bin = remotionBin(remotionDir);
 
-  const args = [
-    "render",
-    `--config=${path.join(remotionDir, "remotion.config.ts")}`,
-    "LineupIntro",
-    outputFile,
-    `--props=${JSON.stringify(buildCompositionProps(job))}`,
-    "--log=verbose",
-  ];
+  // Write props to a temp JSON file instead of passing inline. This avoids
+  // shell-quoting the JSON (full of double-quotes) on Windows cmd, which is
+  // where execFileSync on a .cmd shim throws EINVAL. Remotion's --props
+  // accepts a path to a JSON file.
+  const propsFile = path.join(OUTPUT_DIR, `${job.id}.props.json`);
+  fs.writeFileSync(propsFile, JSON.stringify(buildCompositionProps(job)));
 
-  // TODO: swap this execFileSync for a Lambda/Modal invocation in production.
-  // The props JSON is the contract — the remote renderer receives the same object.
-  console.log(`[RENDERER] running: ${bin} ${args.join(" ")}`);
-  execFileSync(bin, args, { cwd: remotionDir, stdio: "inherit" });
+  // Quote every path so spaces (e.g. "C:\Users\Armand Storm\...") survive the shell.
+  const configFile = path.join(remotionDir, "remotion.config.ts");
+  const cmd = [
+    `"${bin}"`,
+    "render",
+    `--config="${configFile}"`,
+    "LineupIntro",
+    `"${outputFile}"`,
+    `--props="${propsFile}"`,
+    "--log=verbose",
+  ].join(" ");
+
+  // TODO: swap this execSync for a Lambda/Modal invocation in production.
+  // The props JSON file is the contract — the remote renderer receives the same object.
+  console.log(`[RENDERER] running: ${cmd}`);
+  try {
+    // execSync always runs through a shell (cmd.exe on Windows), so the .cmd
+    // shim resolves correctly here — unlike execFileSync, which throws EINVAL.
+    execSync(cmd, { cwd: remotionDir, stdio: "inherit" });
+  } finally {
+    fs.rmSync(propsFile, { force: true });
+  }
 
   return outputFile;
 }
