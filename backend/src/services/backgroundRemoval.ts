@@ -42,21 +42,29 @@ function standardizeMp4(inputPath: string, outputPath: string): void {
   );
 }
 
-// Route B: combine the clean local RGB clip with RVM's alpha-mask matte (a
-// grayscale video: white = foreground) into a VP9 WebM with a real alpha plane
-// (yuva420p) that Remotion's <OffthreadVideo transparent> can overlay. Using the
-// matte as alpha avoids the green-spill/edge artifacts of chroma-keying.
+// Route B: combine the clean local RGB clip with RVM's alpha-mask matte into a
+// VP9 WebM with a real alpha plane (yuva420p) that Remotion's
+// <OffthreadVideo transparent> can overlay. Avoids chroma-key green spill.
+//
+// NB: robust_video_matting's alpha-mask is SUBJECT=black / background=white,
+// but alphamerge maps WHITE luma → opaque. So we negate the matte first;
+// without it the subject comes out fully transparent. Set BG_MATTE_NO_INVERT=1
+// to disable the negate if a future model build flips this.
 function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: string): void {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  const matteFilter =
+    process.env.BG_MATTE_NO_INVERT === "1"
+      ? "[1:v]format=gray[a]"
+      : "[1:v]format=gray,negate[a]";
   execFileSync(
     FFMPEG,
     [
       "-y",
       "-i", rgbPath,    // [0] foreground colour
       "-i", mattePath,  // [1] grayscale matte → alpha
-      // alphamerge takes the luma of the second input as the alpha channel.
+      // alphamerge takes the luma of the alpha input as the alpha channel.
       "-filter_complex",
-      "[0:v]format=rgba[rgb];[rgb][1:v]alphamerge,format=yuva420p[out]",
+      `${matteFilter};[0:v]format=rgba[rgb];[rgb][a]alphamerge,format=yuva420p[out]`,
       "-map", "[out]",
       "-map", "0:a?",   // keep original audio if present
       "-c:v", "libvpx-vp9",
@@ -67,6 +75,34 @@ function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: st
     ],
     { stdio: "inherit" }
   );
+
+  // Debug: when BG_REMOVAL_DEBUG=1, render the transparent result over a
+  // checkerboard so the subject can be eyeballed (transparent areas show the
+  // pattern, the player should be fully visible/opaque). Saved alongside output.
+  if (process.env.BG_REMOVAL_DEBUG === "1") {
+    const debugPath = outputPath.replace(/\.webm$/, ".debug.mp4");
+    try {
+      execFileSync(
+        FFMPEG,
+        [
+          "-y",
+          "-f", "lavfi",
+          "-i",
+          "color=c=gray:s=1080x1920,format=rgba," +
+            "geq=lum='if(mod(floor(X/40)+floor(Y/40),2),200,120)':a=255",
+          "-i", outputPath,
+          "-filter_complex", "[0:v][1:v]overlay=shortest=1[out]",
+          "-map", "[out]",
+          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest",
+          debugPath,
+        ],
+        { stdio: "inherit" }
+      );
+      console.log(`[BG-REMOVAL] debug preview written: ${debugPath}`);
+    } catch (e) {
+      console.warn("[BG-REMOVAL] debug preview failed (non-fatal):", e);
+    }
+  }
 }
 
 // Opaque VP9 WebM — used by the mock and as the graceful fallback when matting
