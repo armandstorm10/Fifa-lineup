@@ -6,21 +6,16 @@ import { RenderJob } from "@lineupai/shared";
 const OUTPUT_DIR = path.resolve(process.env.RENDER_OUTPUT_DIR || "./renders");
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-// Path to the remotion binary, RELATIVE to the remotion workspace dir (which is
-// passed to execSync as cwd). Keeping this relative avoids putting an absolute
-// path with spaces (e.g. "C:\Users\Armand Storm\...") as the command token —
-// cmd.exe mangles a quoted, space-containing leading token and fails with
-// "The system cannot find the path specified". On Windows the binary is a .cmd shim.
-//
-// npm workspaces usually HOISTS the binary to the root node_modules/.bin (i.e.
-// ../node_modules/.bin from here), but it may also live in the local workspace's
-// node_modules/.bin. Prefer whichever actually exists.
-function remotionBinRelative(remotionDir: string): string {
+// Absolute path to the remotion binary. npm workspaces HOISTS the binary to the
+// root node_modules/.bin, so resolve there first (../node_modules/.bin from the
+// remotion workspace). Fall back to the local workspace bin only if the hoisted
+// one is absent. On Windows the binary is a .cmd shim.
+function resolveRemotionBin(remotionDir: string): string {
   const ext = process.platform === "win32" ? ".cmd" : "";
   const name = `remotion${ext}`;
-  const hoisted = path.join("..", "node_modules", ".bin", name); // root (workspaces)
-  const local = path.join("node_modules", ".bin", name);          // local workspace
-  return fs.existsSync(path.join(remotionDir, hoisted)) ? hoisted : local;
+  const hoisted = path.resolve(remotionDir, "..", "node_modules", ".bin", name);
+  const local = path.resolve(remotionDir, "node_modules", ".bin", name);
+  return fs.existsSync(local) ? local : hoisted;
 }
 
 // Props passed into the Remotion composition as JSON
@@ -43,7 +38,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
 
   const outputFile = path.join(OUTPUT_DIR, `${job.id}.mp4`);
   const remotionDir = path.resolve(__dirname, "../../../remotion");
-  const bin = remotionBinRelative(remotionDir);
+  const bin = resolveRemotionBin(remotionDir);
 
   // Write props to a temp JSON file instead of passing inline. This avoids
   // shell-quoting the JSON (full of double-quotes) on Windows cmd, which is
