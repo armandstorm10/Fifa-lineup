@@ -42,12 +42,18 @@ export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
 
       {/* Transparent VP9 player clip overlaid on the backdrop. transparent lets
           OffthreadVideo decode the WebM's alpha channel. src is an http URL the
-          backend serves. (Opaque-fallback clips simply fill the frame.) */}
-      <OffthreadVideo
-        src={src}
-        transparent
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-      />
+          backend serves. (Opaque-fallback clips simply fill the frame.)
+          MUST be wrapped in <AbsoluteFill>: OffthreadVideo renders an in-flow
+          <img>, which the absolutely-positioned backdrop/vignette would paint
+          OVER, hiding the player. AbsoluteFill puts it in the same stacking
+          layer so DOM order (after the backdrop) wins. */}
+      <AbsoluteFill>
+        <OffthreadVideo
+          src={src}
+          transparent
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      </AbsoluteFill>
 
       {/* Accent vignette border */}
       <div style={{
