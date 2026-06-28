@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+remotion/out/
+
+# Runtime artifacts
+uploads/
+renders/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

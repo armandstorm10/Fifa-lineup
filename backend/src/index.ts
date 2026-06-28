@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./loadEnv"; // MUST be first — loads the repo-root .env before any module reads process.env
 import express from "express";
 import cors from "cors";
 import { jobsRouter } from "./routes/jobs";

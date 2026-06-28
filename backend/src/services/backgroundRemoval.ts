@@ -224,6 +224,17 @@ const replicateService: BackgroundRemovalService = {
   },
 };
 
-// Select provider from env. Defaults to mock so dev works with no keys.
-export const backgroundRemoval: BackgroundRemovalService =
-  process.env.BG_REMOVAL_PROVIDER === "replicate" ? replicateService : mockService;
+// Select provider from env. Read LAZILY (per call), not at module-load time, so
+// it's correct regardless of whether .env was loaded before this module was
+// imported. Defaults to mock so dev works with no keys.
+function selectProvider(): BackgroundRemovalService {
+  return process.env.BG_REMOVAL_PROVIDER === "replicate" ? replicateService : mockService;
+}
+
+export const backgroundRemoval: BackgroundRemovalService = {
+  removeBackground(inputPath: string, outputPath: string): Promise<void> {
+    const provider = process.env.BG_REMOVAL_PROVIDER === "replicate" ? "replicate" : "mock";
+    console.log(`[BG-REMOVAL] provider=${provider}`);
+    return selectProvider().removeBackground(inputPath, outputPath);
+  },
+};
