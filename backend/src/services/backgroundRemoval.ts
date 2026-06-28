@@ -44,25 +44,31 @@ function standardizeMp4(inputPath: string, outputPath: string): void {
 // to disable the negate if a future model build flips this.
 function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: string): void {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  const matteFilter =
+
+  // Matte → alpha. Negate by default (RVM alpha-mask is subject=black/bg=white,
+  // but alphamerge maps WHITE luma → opaque). Override with BG_MATTE_NO_INVERT=1.
+  const matteG =
     process.env.BG_MATTE_NO_INVERT === "1"
-      ? "[1:v]format=gray[a]"
-      : "[1:v]format=gray,negate[a]";
+      ? "[1:v]format=gray[mg]"
+      : "[1:v]format=gray,negate[mg]";
+  // scale2ref resizes the matte to exactly match the RGB clip, so a model that
+  // returns a different resolution than our input can't break alphamerge (which
+  // requires identical dimensions). [base] is the RGB clip passed through.
+  const mergeChain =
+    `${matteG};[mg][0:v]scale2ref=flags=bilinear[mref][base];` +
+    `[base]format=rgba[rgb];[rgb][mref]alphamerge,format=yuva420p[out]`;
+
   execFileSync(
     FFMPEG,
     [
       "-y",
       "-i", rgbPath,    // [0] foreground colour
       "-i", mattePath,  // [1] grayscale matte → alpha
-      // alphamerge takes the luma of the alpha input as the alpha channel.
-      "-filter_complex",
-      `${matteFilter};[0:v]format=rgba[rgb];[rgb][a]alphamerge,format=yuva420p[out]`,
+      "-filter_complex", mergeChain,
       "-map", "[out]",
       "-map", "0:a?",   // keep original audio if present
-      // VP8 (libvpx), NOT VP9: ffmpeg's libvpx-vp9 silently drops the alpha
-      // plane (writes yuv420p), so the transparency is lost. VP8 stores alpha
-      // via WebM's AlphaMode side-channel and Remotion's OffthreadVideo reads it.
-      // -auto-alt-ref 0 is required for alpha with libvpx.
+      // VP8 (libvpx) with yuva420p — Remotion's documented transparent-video
+      // codec. -auto-alt-ref 0 is required for alpha with libvpx.
       "-c:v", "libvpx",
       "-auto-alt-ref", "0",
       "-pix_fmt", "yuva420p",
@@ -73,28 +79,30 @@ function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: st
     { stdio: "inherit" }
   );
 
-  // Debug: when BG_REMOVAL_DEBUG=1, dump artifacts next to the output so the
-  // alpha can be verified directly: (a) the raw matte, (b) the final clip's
-  // recovered alpha plane, (c) the clip composited over a checkerboard.
+  // Debug (BG_REMOVAL_DEBUG=1): emit checks that work on ANY ffmpeg build
+  // (ffmpeg-static ships no ffprobe, and some builds can't decode webm alpha).
+  // We sample alpha from the FILTERGRAPH (not the encoded webm), so it's always
+  // valid: .alpha.png is the exact alpha plane that gets baked in — the subject
+  // should be WHITE, the background BLACK.
   if (process.env.BG_REMOVAL_DEBUG === "1") {
     const base = outputPath.replace(/\.webm$/, "");
     try {
-      // (a) raw matte the model returned
-      fs.copyFileSync(mattePath, `${base}.matte.mp4`);
-      // (b) recovered alpha plane of the final webm (white = opaque subject)
-      execFileSync(FFMPEG, ["-y", "-i", outputPath, "-vf", "alphaextract,format=gray",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", `${base}.alpha.mp4`], { stdio: "inherit" });
-      // (c) composite over a checkerboard so the subject can be eyeballed
+      fs.copyFileSync(mattePath, `${base}.matte.mp4`); // raw model matte
+      // Alpha plane straight from the merge filtergraph → PNG (mid-clip frame).
       execFileSync(FFMPEG, [
-        "-y",
-        "-f", "lavfi", "-i", "color=c=gray:s=540x960:d=3",
-        "-i", outputPath,
+        "-y", "-i", rgbPath, "-i", mattePath,
         "-filter_complex",
-        "[0:v]format=rgba,drawgrid=w=40:h=40:t=1:c=white@0.3[bg];[bg][1:v]overlay=shortest=1[out]",
-        "-map", "[out]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest",
-        `${base}.debug.mp4`,
+        `${matteG};[mg][0:v]scale2ref=flags=bilinear[mref][base];` +
+          `[base]format=rgba[rgb];[rgb][mref]alphamerge,format=rgba,alphaextract,format=gray[a]`,
+        "-map", "[a]", "-frames:v", "1", `${base}.alpha.png`,
       ], { stdio: "inherit" });
-      console.log(`[BG-REMOVAL] debug artifacts: ${base}.matte.mp4 / .alpha.mp4 / .debug.mp4`);
+      // Numeric sanity: alpha at the center vs a corner (0=transparent,
+      // 255=opaque). Center should trend high (subject), corner low (background).
+      const px = (crop: string) =>
+        execFileSync(FFMPEG, ["-i", `${base}.alpha.png`, "-vf",
+          `crop=${crop}`, "-f", "rawvideo", "-"], { stdio: ["ignore", "pipe", "ignore"] })?.[0];
+      console.log(`[BG-REMOVAL] debug: alpha center=${px("1:1:iw/2:ih/2")} corner=${px("1:1:2:2")} ` +
+        `(255=opaque subject) → ${base}.alpha.png / .matte.mp4`);
     } catch (e) {
       console.warn("[BG-REMOVAL] debug artifacts failed (non-fatal):", e);
     }
