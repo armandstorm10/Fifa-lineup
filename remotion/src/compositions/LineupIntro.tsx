@@ -1,10 +1,30 @@
 import { AbsoluteFill, Series, useVideoConfig } from "remotion";
 import { z } from "zod";
 import { Player, Template, AspectRatio, Resolution } from "@lineupai/shared";
-import { FlagReveal } from "./scenes/FlagReveal";
-import { NameCard } from "./scenes/NameCard";
+import { CountryOpener } from "./scenes/CountryOpener";
 import { PlayerClip } from "./scenes/PlayerClip";
 import { WatermarkOverlay } from "./scenes/WatermarkOverlay";
+
+// Per-player timing (seconds). The clip ENDS on the player scene — no outro.
+export const OPENER_SECONDS = 1;
+export const CLIP_SECONDS = 3;
+export const PLAYER_SECONDS = OPENER_SECONDS + CLIP_SECONDS;
+
+// Template accent + fallback backdrop, shared with the opener.
+const TEMPLATE_COLORS: Record<Template, { accent: string; backdrop: string }> = {
+  "world-cup-gold": {
+    accent: "#FFD700",
+    backdrop: "radial-gradient(ellipse at 50% 30%, #1a2a4a 0%, #0A1628 70%)",
+  },
+  "champions-league-navy": {
+    accent: "#4A90D9",
+    backdrop: "radial-gradient(ellipse at 50% 30%, #13294f 0%, #060d1f 70%)",
+  },
+  "stadium-night": {
+    accent: "#00B140",
+    backdrop: "radial-gradient(ellipse at 50% 30%, #0c2418 0%, #050A0E 70%)",
+  },
+};
 
 // Zod schema for Remotion prop validation
 export const lineupIntroSchema = z.object({
@@ -33,9 +53,6 @@ export type CompositionProps = {
   resolution: Resolution;
 };
 
-// Frames per player sequence
-const FRAMES_PER_PLAYER = 150; // 5s at 30fps
-
 export const LineupIntro: React.FC<CompositionProps> = ({
   players,
   template,
@@ -44,13 +61,8 @@ export const LineupIntro: React.FC<CompositionProps> = ({
   return (
     <AbsoluteFill style={{ background: "#0A0E1A" }}>
       {/* Map over players — v1 has 1, team mode will have N */}
-      {players.map((player, i) => (
-        <PlayerSequence
-          key={player.id}
-          player={player}
-          template={template}
-          startFrame={i * FRAMES_PER_PLAYER}
-        />
+      {players.map((player) => (
+        <PlayerSequence key={player.id} player={player} template={template} />
       ))}
       {watermark && <WatermarkOverlay />}
     </AbsoluteFill>
@@ -60,25 +72,20 @@ export const LineupIntro: React.FC<CompositionProps> = ({
 const PlayerSequence: React.FC<{
   player: Player;
   template: Template;
-  startFrame: number;
 }> = ({ player, template }) => {
   const { fps } = useVideoConfig();
+  const { accent, backdrop } = TEMPLATE_COLORS[template];
   return (
     <AbsoluteFill>
       <Series>
-        {/* Flag reveal: 1.5s */}
-        <Series.Sequence durationInFrames={Math.round(fps * 1.5)}>
-          <FlagReveal country={player.country} template={template} />
+        {/* ~1s flag-sweep + country-name opener, wiping into the clip */}
+        <Series.Sequence durationInFrames={Math.round(fps * OPENER_SECONDS)}>
+          <CountryOpener country={player.country} accent={accent} backdrop={backdrop} />
         </Series.Sequence>
 
-        {/* Player clip: 2s */}
-        <Series.Sequence durationInFrames={Math.round(fps * 2)}>
+        {/* Player clip — the video ENDS here, no outro */}
+        <Series.Sequence durationInFrames={Math.round(fps * CLIP_SECONDS)}>
           <PlayerClip player={player} template={template} />
-        </Series.Sequence>
-
-        {/* Name card: 1.5s */}
-        <Series.Sequence durationInFrames={Math.round(fps * 1.5)}>
-          <NameCard player={player} template={template} />
         </Series.Sequence>
       </Series>
     </AbsoluteFill>
