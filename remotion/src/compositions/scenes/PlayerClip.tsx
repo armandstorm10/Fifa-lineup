@@ -1,9 +1,17 @@
 import React from "react";
-import { AbsoluteFill, OffthreadVideo } from "remotion";
+import {
+  AbsoluteFill,
+  Img,
+  OffthreadVideo,
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from "remotion";
 import { Player, Template } from "@lineupai/shared";
+import { AVAILABLE_FLAGS } from "../flags";
 
-// accent = highlight color; backdrop = stadium-ish gradient behind the keyed
-// player. Swap `backdrop` for a real stadium image/video per template later.
+// accent = highlight color; backdrop = gradient used ONLY as a fallback when the
+// player's country has no bundled flag asset.
 const TEMPLATE_COLORS: Record<Template, { accent: string; backdrop: string }> = {
   "world-cup-gold": {
     accent: "#FFD700",
@@ -19,12 +27,46 @@ const TEMPLATE_COLORS: Record<Template, { accent: string; backdrop: string }> = 
   },
 };
 
+// Animated national flag backdrop. Gentle, looping-friendly sway + slow scale
+// driven by sine over the whole composition so it tiles seamlessly on loop.
+const FlagBackdrop: React.FC<{ country: string }> = ({ country }) => {
+  const frame = useCurrentFrame();
+  const { durationInFrames } = useVideoConfig();
+  const code = country.toLowerCase();
+
+  // One full sine cycle over the clip's duration → seamless loop.
+  const phase = (frame / Math.max(durationInFrames, 1)) * Math.PI * 2;
+
+  // Subtle horizontal drift (±1.5%) and slow breathing scale (1.10 ± 0.03).
+  // The base scale > 1 means the drift never exposes the frame edges.
+  const driftX = Math.sin(phase) * 1.5;          // percent
+  const scale = 1.1 + Math.sin(phase) * 0.03;
+
+  return (
+    <AbsoluteFill style={{ overflow: "hidden", backgroundColor: "#0A0E1A" }}>
+      <Img
+        src={staticFile(`flags/${code}.svg`)}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          transform: `translateX(${driftX}%) scale(${scale})`,
+          transformOrigin: "center center",
+        }}
+      />
+      {/* Darkening scrim so the keyed player reads clearly over the flag. */}
+      <AbsoluteFill style={{ background: "rgba(0,0,0,0.28)" }} />
+    </AbsoluteFill>
+  );
+};
+
 export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
   player,
   template,
 }) => {
   const { accent, backdrop } = TEMPLATE_COLORS[template];
   const src = player.processedClipPath || player.clipPath;
+  const hasFlag = AVAILABLE_FLAGS.has(player.country.toLowerCase());
 
   // When clipPath is empty (preview in Remotion Studio) show a placeholder
   if (!src) {
@@ -37,8 +79,13 @@ export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
 
   return (
     <AbsoluteFill>
-      {/* Template backdrop, behind the keyed player */}
-      <AbsoluteFill style={{ background: backdrop }} />
+      {/* Backdrop: animated national flag, or gradient fallback if the country
+          has no bundled flag asset (never renders blank). */}
+      {hasFlag ? (
+        <FlagBackdrop country={player.country} />
+      ) : (
+        <AbsoluteFill style={{ background: backdrop }} />
+      )}
 
       {/* Transparent VP9 player clip overlaid on the backdrop. transparent lets
           OffthreadVideo decode the WebM's alpha channel. src is an http URL the
