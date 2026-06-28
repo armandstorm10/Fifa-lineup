@@ -1,8 +1,10 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Easing,
   Img,
   OffthreadVideo,
+  interpolate,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
@@ -60,6 +62,119 @@ const FlagBackdrop: React.FC<{ country: string }> = ({ country }) => {
   );
 };
 
+// FIFA-style hero name + big shirt number overlay. Sits ABOVE the flag and the
+// player clip. Animates in slightly after the clip starts (fade + slide-up +
+// scale) for a broadcast "reveal" feel. Missing fields are omitted cleanly.
+const NameNumberOverlay: React.FC<{ player: Player; accent: string }> = ({
+  player,
+  accent,
+}) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+
+  const name = player.name?.trim();
+  const position = player.position?.trim();
+  const hasNumber = Number.isFinite(player.shirtNumber);
+  if (!name && !position && !hasNumber) return null;
+
+  // Reveal starts ~0.4s in, eases over ~0.7s.
+  const start = Math.round(fps * 0.4);
+  const dur = Math.round(fps * 0.7);
+  const t = interpolate(frame, [start, start + dur], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic),
+  });
+  const slideUp = interpolate(t, [0, 1], [60, 0]);
+  const numberScale = interpolate(t, [0, 1], [1.15, 1]);
+
+  const textShadow = "0 2px 12px rgba(0,0,0,0.85), 0 0 2px rgba(0,0,0,0.9)";
+
+  return (
+    <AbsoluteFill style={{ justifyContent: "flex-end", pointerEvents: "none" }}>
+      {/* Bottom scrim so text stays legible over any flag */}
+      <AbsoluteFill
+        style={{
+          background:
+            "linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.35) 28%, rgba(0,0,0,0) 50%)",
+        }}
+      />
+
+      <div
+        style={{
+          position: "relative",
+          padding: "0 64px 150px",
+          opacity: t,
+          transform: `translateY(${slideUp}px)`,
+        }}
+      >
+        {/* Hero shirt number — oversized, accent, sits low so it clears the face */}
+        {hasNumber && (
+          <div
+            style={{
+              fontSize: 360,
+              fontWeight: 900,
+              lineHeight: 0.8,
+              color: accent,
+              opacity: 0.92,
+              letterSpacing: "-0.04em",
+              transform: `scale(${numberScale})`,
+              transformOrigin: "left bottom",
+              textShadow,
+              marginBottom: 8,
+            }}
+          >
+            {player.shirtNumber}
+          </div>
+        )}
+
+        {/* Name — strong condensed bold */}
+        {name && (
+          <div
+            style={{
+              fontSize: 96,
+              fontWeight: 800,
+              color: "#FFFFFF",
+              lineHeight: 1,
+              letterSpacing: "0.01em",
+              textTransform: "uppercase",
+              textShadow,
+            }}
+          >
+            {name}
+          </div>
+        )}
+
+        {/* Position — smaller label under the name, with an accent tab */}
+        {position && (
+          <div
+            style={{
+              marginTop: 18,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 14,
+            }}
+          >
+            <span style={{ width: 40, height: 6, background: accent, borderRadius: 3 }} />
+            <span
+              style={{
+                fontSize: 40,
+                fontWeight: 700,
+                color: "#FFFFFF",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                textShadow,
+              }}
+            >
+              {position}
+            </span>
+          </div>
+        )}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
   player,
   template,
@@ -109,6 +224,9 @@ export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
         boxShadow: `inset 0 0 80px ${accent}55`,
         pointerEvents: "none",
       }} />
+
+      {/* FIFA-style name + hero number — ABOVE flag and player clip. */}
+      <NameNumberOverlay player={player} accent={accent} />
     </AbsoluteFill>
   );
 };
