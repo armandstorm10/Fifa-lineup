@@ -19,14 +19,6 @@ if (!ffmpegStatic) {
 const FFMPEG = ffmpegStatic;
 
 const UPLOADS_BASE = path.resolve(process.env.LOCAL_STORAGE_PATH || "./uploads");
-const PUBLIC_BASE_URL =
-  process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
-
-// Map a file under the uploads dir to the http URL the backend serves it at.
-function toPublicUrl(filePath: string): string {
-  const rel = path.relative(UPLOADS_BASE, path.resolve(filePath)).split(path.sep).join("/");
-  return `${PUBLIC_BASE_URL}/uploads/${rel}`;
-}
 
 // ── ffmpeg helpers ────────────────────────────────────────────────────────────
 
@@ -150,12 +142,12 @@ const mockService: BackgroundRemovalService = {
 
 // ── Replicate implementation (arielreplicate/robust_video_matting) ────────────
 // Route B flow:
-//   1. Standardize the upload to MP4 and place it under /uploads so it has a
-//      public http URL (NOTE: PUBLIC_BASE_URL must be reachable by Replicate —
-//      in local dev use a tunnel such as ngrok; localhost will NOT work).
+//   1. Standardize the upload to MP4, then upload it to Replicate's file storage
+//      and use the returned URL (no localhost/tunnel needed — Replicate's cloud
+//      can't reach our dev server).
 //   2. Run the matting model with output_type=alpha-mask, polling for status.
 //   3. Download the matte, alphamerge it with the local RGB clip → transparent
-//      VP9 WebM (no green-spill artifacts).
+//      VP8 WebM (no green-spill artifacts).
 //   4. On any failure, fall back to an opaque WebM so the render still succeeds.
 const replicateService: BackgroundRemovalService = {
   async removeBackground(inputPath: string, outputPath: string): Promise<void> {
@@ -176,10 +168,17 @@ const replicateService: BackgroundRemovalService = {
     try {
       const replicate = new Replicate({ auth: token });
 
-      // 1. Standardize + publish input
+      // 1. Standardize, then UPLOAD the file to Replicate's file storage and use
+      //    the returned URL. We must NOT pass a localhost URL — Replicate runs in
+      //    the cloud and can't reach our dev server ([Errno 111] Connection
+      //    refused). Uploading directly works without any public tunnel.
       standardizeMp4(inputPath, rgbClip);
-      const inputUrl = toPublicUrl(rgbClip);
-      console.log(`[BG-REMOVAL] replicate: input URL ${inputUrl}`);
+      const data = await fs.promises.readFile(rgbClip);
+      const uploaded = await replicate.files.create(
+        new Blob([data], { type: "video/mp4" })
+      );
+      const inputUrl = uploaded.urls.get;
+      console.log(`[BG-REMOVAL] replicate: uploaded input → ${inputUrl}`);
 
       // 2. Resolve latest model version, create + poll prediction
       const model = await replicate.models.get("arielreplicate", "robust_video_matting");
