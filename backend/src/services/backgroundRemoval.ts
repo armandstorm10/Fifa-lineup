@@ -45,12 +45,13 @@ function standardizeMp4(inputPath: string, outputPath: string): void {
 function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: string): void {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-  // Matte → alpha. Negate by default (RVM alpha-mask is subject=black/bg=white,
-  // but alphamerge maps WHITE luma → opaque). Override with BG_MATTE_NO_INVERT=1.
+  // Matte → alpha. RVM's alpha-mask is subject=WHITE/bg=black, and alphamerge
+  // maps WHITE luma → opaque, so NO negate by default. Set BG_MATTE_INVERT=1 to
+  // negate (e.g. if a future model build flips the convention).
   const matteG =
-    process.env.BG_MATTE_NO_INVERT === "1"
-      ? "[1:v]format=gray[mg]"
-      : "[1:v]format=gray,negate[mg]";
+    process.env.BG_MATTE_INVERT === "1"
+      ? "[1:v]format=gray,negate[mg]"
+      : "[1:v]format=gray[mg]";
   // scale2ref resizes the matte to exactly match the RGB clip, so a model that
   // returns a different resolution than our input can't break alphamerge (which
   // requires identical dimensions). [base] is the RGB clip passed through.
@@ -67,9 +68,11 @@ function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: st
       "-filter_complex", mergeChain,
       "-map", "[out]",
       "-map", "0:a?",   // keep original audio if present
-      // VP8 (libvpx) with yuva420p — Remotion's documented transparent-video
-      // codec. -auto-alt-ref 0 is required for alpha with libvpx.
-      "-c:v", "libvpx",
+      // VP9 (libvpx-vp9) with yuva420p. VP9 alpha (AlphaMode in the WebM
+      // container) is decoded reliably by Chrome/Remotion's OffthreadVideo,
+      // whereas VP8 alpha is poorly/slowly supported. -auto-alt-ref 0 keeps the
+      // alpha plane intact.
+      "-c:v", "libvpx-vp9",
       "-auto-alt-ref", "0",
       "-pix_fmt", "yuva420p",
       "-b:v", "2M",
