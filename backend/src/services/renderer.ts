@@ -71,19 +71,27 @@ function buildCompositionProps(job: RenderJob): object {
     aspectRatio: job.aspectRatio,
     watermark: job.watermark,
     resolution: job.resolution,
-    // Only enable the crowd-cheer bed if the asset is actually present, so a
-    // missing file never hard-fails the render.
-    crowdAudio: crowdAudioAvailable(),
+    // Pass the actual audio filename found in the public dir (or undefined).
+    // Robust to the exact filename — any .wav/.mp3 in audio/ is used.
+    crowdAudioFile: resolveCrowdAudioFile(),
   };
 }
 
-// The crowd-cheer asset lives in the remotion workspace's public dir.
-const CROWD_AUDIO_PATH = path.resolve(
-  __dirname,
-  "../../../remotion/public/audio/397434_foolboymedia__crowd-cheer.wav"
-);
-function crowdAudioAvailable(): boolean {
-  return fs.existsSync(CROWD_AUDIO_PATH);
+// Find a crowd-cheer asset in the remotion public audio dir. Returns the
+// staticFile-relative path (e.g. "audio/foo.wav") or undefined if none. Scanning
+// (rather than a hardcoded name) avoids silent failures from filename drift.
+const AUDIO_DIR = path.resolve(__dirname, "../../../remotion/public/audio");
+function resolveCrowdAudioFile(): string | undefined {
+  let file: string | undefined;
+  try {
+    file = fs
+      .readdirSync(AUDIO_DIR)
+      .find((f) => /\.(wav|mp3|m4a|aac)$/i.test(f));
+  } catch {
+    /* dir missing */
+  }
+  console.log(`[RENDERER] crowdAudio: dir=${AUDIO_DIR} found=${file ?? "(none)"}`);
+  return file ? `audio/${file}` : undefined;
 }
 
 // Returns the local path of the rendered MP4

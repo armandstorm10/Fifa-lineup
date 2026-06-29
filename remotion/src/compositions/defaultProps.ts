@@ -15,7 +15,7 @@ export const defaultProps: CompositionProps = {
   aspectRatio: "9:16",
   watermark: true,
   resolution: 480,
-  // Off by default so Studio preview never errors if the WAV isn't present;
-  // the backend enables it for real renders when the asset exists.
-  crowdAudio: false,
+  // Unset by default so Studio preview never errors if the WAV isn't present;
+  // the backend sets the real filename for renders when the asset exists.
+  crowdAudioFile: undefined,
 };
