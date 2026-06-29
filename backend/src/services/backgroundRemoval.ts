@@ -52,12 +52,23 @@ function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: st
     process.env.BG_MATTE_INVERT === "1"
       ? "[1:v]format=gray,negate[mg]"
       : "[1:v]format=gray[mg]";
+
+  // Alpha edge choke: erode the matte's WHITE (foreground) region by N pixels to
+  // pull the cutout edge in and kill the keyed-matte halo/fringe. Done here in
+  // ffmpeg (the `erosion` filter shrinks bright areas ~1px per pass) AFTER
+  // scale2ref so N is measured in OUTPUT pixels. Remotion's transparent path is
+  // untouched. Adjustable via ALPHA_CHOKE_PX (default 2; 0 disables).
+  const chokePx = Math.max(0, Math.floor(Number(process.env.ALPHA_CHOKE_PX ?? "2")));
+  const erodeChain = Array(chokePx).fill("erosion").join(",");
+  const chokeStep = chokePx > 0 ? `[mref]${erodeChain}[mchoked]` : "[mref]null[mchoked]";
+
   // scale2ref resizes the matte to exactly match the RGB clip, so a model that
   // returns a different resolution than our input can't break alphamerge (which
   // requires identical dimensions). [base] is the RGB clip passed through.
   const mergeChain =
     `${matteG};[mg][0:v]scale2ref=flags=bilinear[mref][base];` +
-    `[base]format=rgba[rgb];[rgb][mref]alphamerge,format=yuva420p[out]`;
+    `${chokeStep};` +
+    `[base]format=rgba[rgb];[rgb][mchoked]alphamerge,format=yuva420p[out]`;
 
   execFileSync(
     FFMPEG,
@@ -96,7 +107,8 @@ function alphaMaskToAlphaWebm(rgbPath: string, mattePath: string, outputPath: st
         "-y", "-i", rgbPath, "-i", mattePath,
         "-filter_complex",
         `${matteG};[mg][0:v]scale2ref=flags=bilinear[mref][base];` +
-          `[base]format=rgba[rgb];[rgb][mref]alphamerge,format=rgba,alphaextract,format=gray[a]`,
+          `${chokeStep};` +
+          `[base]format=rgba[rgb];[rgb][mchoked]alphamerge,format=rgba,alphaextract,format=gray[a]`,
         "-map", "[a]", "-frames:v", "1", `${base}.alpha.png`,
       ], { stdio: "inherit" });
       // Numeric sanity: alpha at the center vs a corner (0=transparent,
