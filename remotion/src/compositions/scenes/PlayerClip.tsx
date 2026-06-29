@@ -142,7 +142,9 @@ const NameNumberOverlay: React.FC<{ player: Player; accent: string }> = ({
       <div
         style={{
           position: "relative",
-          padding: "0 64px 150px",
+          // Bottom padding lifted ~11% of frame height (1920px) above the old
+          // 150px so the block clears the bottom edge / video player controls.
+          padding: "0 64px 360px",
           opacity: t,
           transform: `translateY(${slideUp}px)`,
         }}
