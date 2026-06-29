@@ -214,6 +214,10 @@ const NameNumberOverlay: React.FC<{ player: Player; accent: string }> = ({
   );
 };
 
+// Alpha edge choke (pixels). Shrinks the player cutout's alpha edge to reduce the
+// halo/fringe from the keyed VP9 matte. Bump for a stronger choke; 0 disables.
+const ALPHA_CHOKE_PX = 2;
+
 export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
   player,
   template,
@@ -221,6 +225,8 @@ export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
   const { accent, backdrop } = TEMPLATE_COLORS[template];
   const src = player.processedClipPath || player.clipPath;
   const hasFlag = AVAILABLE_FLAGS.has(player.country.toLowerCase());
+  // Unique filter id per clip so multiple players don't collide.
+  const chokeId = `alpha-choke-${player.id}`;
 
   // When clipPath is empty (preview in Remotion Studio) show a placeholder
   if (!src) {
@@ -248,7 +254,26 @@ export const PlayerClip: React.FC<{ player: Player; template: Template }> = ({
           <img>, which the absolutely-positioned backdrop/vignette would paint
           OVER, hiding the player. AbsoluteFill puts it in the same stacking
           layer so DOM order (after the backdrop) wins. */}
-      <AbsoluteFill>
+      <AbsoluteFill style={ALPHA_CHOKE_PX > 0 ? { filter: `url(#${chokeId})` } : undefined}>
+        {/* Alpha-only edge choke: erode SourceAlpha by N px, then re-composite the
+            original colours INTO the eroded alpha. This shrinks the cutout's edge
+            (killing the matte halo/fringe) without darkening the player's pixels.
+            Scoped to this wrapper only — the flag backdrop is untouched. */}
+        {ALPHA_CHOKE_PX > 0 && (
+          <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden>
+            <defs>
+              <filter id={chokeId} x="-5%" y="-5%" width="110%" height="110%">
+                <feMorphology
+                  in="SourceAlpha"
+                  operator="erode"
+                  radius={ALPHA_CHOKE_PX}
+                  result="eroded"
+                />
+                <feComposite in="SourceGraphic" in2="eroded" operator="in" />
+              </filter>
+            </defs>
+          </svg>
+        )}
         <OffthreadVideo
           src={src}
           transparent
