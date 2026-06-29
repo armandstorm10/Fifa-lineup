@@ -9,12 +9,17 @@ import { WatermarkOverlay } from "./scenes/WatermarkOverlay";
 export const OPENER_SECONDS = 1;
 // Fallback clip length only when a clip's duration can't be probed.
 export const DEFAULT_CLIP_SECONDS = 3;
+// Hard cap: clips longer than this are truncated (the player Sequence ends here,
+// cutting OffthreadVideo off). No minimum is imposed — short clips play in full.
+export const MAX_CLIP_SECONDS = 8;
 export const FPS = 30;
 
-// Clip length for one player: the probed duration, else the fallback.
+// Clip length for one player: the probed duration (capped at MAX_CLIP_SECONDS),
+// else the fallback.
 function clipSeconds(player: Player): number {
   const d = player.durationInSeconds;
-  return d && Number.isFinite(d) && d > 0 ? d : DEFAULT_CLIP_SECONDS;
+  const seconds = d && Number.isFinite(d) && d > 0 ? d : DEFAULT_CLIP_SECONDS;
+  return Math.min(seconds, MAX_CLIP_SECONDS);
 }
 
 // Template accent + fallback backdrop, shared with the opener.
