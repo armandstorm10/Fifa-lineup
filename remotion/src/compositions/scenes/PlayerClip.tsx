@@ -29,33 +29,72 @@ const TEMPLATE_COLORS: Record<Template, { accent: string; backdrop: string }> = 
   },
 };
 
-// Animated national flag backdrop. Gentle, looping-friendly sway + slow scale
-// driven by sine over the whole composition so it tiles seamlessly on loop.
+// Number of vertical strips the flag is sliced into for the wave. Each strip is
+// a clipping window onto the full flag, displaced/skewed/shaded independently to
+// fake cloth motion. ~26 reads as smooth without being heavy to render.
+const WAVE_STRIPS = 44;    // more strips → smaller steps → smoother cloth
+const WAVE_LOOPS = 3;      // full wave cycles over the clip → seamless loop
+const WAVE_PERIODS = 1.6;  // wave crests visible across the width at once
+
+// Realistic waving national flag backdrop. Pure CSS transforms driven by
+// useCurrentFrame (no WebGL) so it renders deterministically server-side. The
+// flag is sliced into vertical strips that ripple with a travelling sine wave;
+// amplitude grows left→right (the "free end" waves more) and per-strip
+// brightness shifts simulate light catching the folds.
 const FlagBackdrop: React.FC<{ country: string }> = ({ country }) => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
+  const { durationInFrames, height } = useVideoConfig();
   const code = country.toLowerCase();
+  const src = staticFile(`flags/${code}.svg`);
 
-  // One full sine cycle over the clip's duration → seamless loop.
-  const phase = (frame / Math.max(durationInFrames, 1)) * Math.PI * 2;
-
-  // Subtle horizontal drift (±1.5%) and slow breathing scale (1.10 ± 0.03).
-  // The base scale > 1 means the drift never exposes the frame edges.
-  const driftX = Math.sin(phase) * 1.5;          // percent
-  const scale = 1.1 + Math.sin(phase) * 0.03;
+  // Time component loops perfectly: equals its frame-0 value at the last frame.
+  const timePhase = (frame / Math.max(durationInFrames, 1)) * Math.PI * 2 * WAVE_LOOPS;
+  const stripPct = 100 / WAVE_STRIPS;
 
   return (
     <AbsoluteFill style={{ overflow: "hidden", backgroundColor: "#0A0E1A" }}>
-      <Img
-        src={staticFile(`flags/${code}.svg`)}
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          transform: `translateX(${driftX}%) scale(${scale})`,
-          transformOrigin: "center center",
-        }}
-      />
+      {/* Slight base scale so vertical strip displacement never exposes edges. */}
+      <AbsoluteFill style={{ transform: "scale(1.06)" }}>
+        {Array.from({ length: WAVE_STRIPS }).map((_, i) => {
+          const nx = i / (WAVE_STRIPS - 1);                 // 0 (pole) → 1 (free end)
+          const angle = timePhase + nx * WAVE_PERIODS * Math.PI * 2;
+          const amp = height * (0.006 + nx * 0.014);        // grows toward free end
+          const dy = Math.sin(angle) * amp;                 // px vertical displacement
+          const skew = Math.cos(angle) * (0.5 + nx * 2.2);  // deg shear from wave slope
+          const bright = 1 + Math.sin(angle) * 0.14 * nx;   // light on the folds
+
+          return (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: `${i * stripPct}%`,
+                width: `${stripPct + 0.4}%`,            // slight overlap hides seams
+                height: "100%",
+                overflow: "hidden",
+                transform: `translateY(${dy}px) skewY(${skew}deg)`,
+                filter: `brightness(${bright})`,
+                willChange: "transform",
+              }}
+            >
+              {/* Full-frame flag, offset so this window shows column i. Taller
+                  than the frame so vertical displacement leaves no gap. */}
+              <Img
+                src={src}
+                style={{
+                  position: "absolute",
+                  left: `${-i * 100}%`,
+                  top: "-8%",
+                  width: `${WAVE_STRIPS * 100}%`,
+                  height: "116%",
+                  objectFit: "cover",
+                }}
+              />
+            </div>
+          );
+        })}
+      </AbsoluteFill>
       {/* Darkening scrim so the keyed player reads clearly over the flag. */}
       <AbsoluteFill style={{ background: "rgba(0,0,0,0.28)" }} />
     </AbsoluteFill>
