@@ -1,7 +1,27 @@
-import { spawn } from "child_process";
+import { spawn, execFileSync } from "child_process";
 import path from "path";
 import fs from "fs";
+import ffmpegStatic from "ffmpeg-static";
 import { RenderJob } from "@lineupai/shared";
+
+// Probe a local media file's duration (seconds) via ffmpeg. ffmpeg-static ships
+// no ffprobe, so we run `ffmpeg -i <file>` (which exits non-zero with no output)
+// and parse "Duration: HH:MM:SS.cc" from stderr. Returns undefined on failure so
+// the composition falls back to its default clip length.
+function probeDurationSeconds(filePath: string): number | undefined {
+  if (!ffmpegStatic || !fs.existsSync(filePath)) return undefined;
+  let stderr = "";
+  try {
+    execFileSync(ffmpegStatic, ["-i", filePath], { stdio: ["ignore", "ignore", "pipe"] });
+  } catch (err) {
+    stderr = (err as { stderr?: Buffer | string }).stderr?.toString() ?? "";
+  }
+  const m = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  if (!m) return undefined;
+  const [, hh, mm, ss] = m;
+  const seconds = Number(hh) * 3600 + Number(mm) * 60 + Number(ss);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+}
 
 const OUTPUT_DIR = path.resolve(process.env.RENDER_OUTPUT_DIR || "./renders");
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -35,11 +55,18 @@ function toPublicUrl(filePath: string): string {
 // Clip paths are rewritten to http URLs so Remotion can fetch them.
 function buildCompositionProps(job: RenderJob): object {
   return {
-    players: job.players.map((p) => ({
-      ...p,
-      clipPath: toPublicUrl(p.clipPath),
-      processedClipPath: p.processedClipPath ? toPublicUrl(p.processedClipPath) : undefined,
-    })),
+    players: job.players.map((p) => {
+      // Probe the LOCAL file that actually plays (processed clip if present),
+      // before rewriting paths to http URLs, so the render duration matches it.
+      const localClip = p.processedClipPath || p.clipPath;
+      const durationInSeconds = p.durationInSeconds ?? probeDurationSeconds(localClip);
+      return {
+        ...p,
+        durationInSeconds,
+        clipPath: toPublicUrl(p.clipPath),
+        processedClipPath: p.processedClipPath ? toPublicUrl(p.processedClipPath) : undefined,
+      };
+    }),
     template: job.template,
     aspectRatio: job.aspectRatio,
     watermark: job.watermark,

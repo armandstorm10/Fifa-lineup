@@ -7,8 +7,15 @@ import { WatermarkOverlay } from "./scenes/WatermarkOverlay";
 
 // Per-player timing (seconds). The clip ENDS on the player scene — no outro.
 export const OPENER_SECONDS = 1;
-export const CLIP_SECONDS = 3;
-export const PLAYER_SECONDS = OPENER_SECONDS + CLIP_SECONDS;
+// Fallback clip length only when a clip's duration can't be probed.
+export const DEFAULT_CLIP_SECONDS = 3;
+export const FPS = 30;
+
+// Clip length for one player: the probed duration, else the fallback.
+function clipSeconds(player: Player): number {
+  const d = player.durationInSeconds;
+  return d && Number.isFinite(d) && d > 0 ? d : DEFAULT_CLIP_SECONDS;
+}
 
 // Template accent + fallback backdrop, shared with the opener.
 const TEMPLATE_COLORS: Record<Template, { accent: string; backdrop: string }> = {
@@ -37,6 +44,7 @@ export const lineupIntroSchema = z.object({
       shirtNumber: z.number(),
       clipPath: z.string(),
       processedClipPath: z.string().optional(),
+      durationInSeconds: z.number().optional(),
     })
   ),
   template: z.enum(["world-cup-gold", "champions-league-navy", "stadium-night"]),
@@ -51,6 +59,17 @@ export type CompositionProps = {
   aspectRatio: AspectRatio;
   watermark: boolean;
   resolution: Resolution;
+};
+
+// Drives the total render length from the clips themselves — no fixed cap.
+// Each player = opener + its clip; for v1 (one player) total = opener + clip.
+// (Players currently overlap from frame 0, so the longest player wins.)
+export const calculateLineupMetadata = ({ props }: { props: CompositionProps }) => {
+  const perPlayer = props.players.map(
+    (p) => Math.round(FPS * OPENER_SECONDS) + Math.round(FPS * clipSeconds(p))
+  );
+  const durationInFrames = Math.max(1, ...perPlayer);
+  return { durationInFrames, fps: FPS };
 };
 
 export const LineupIntro: React.FC<CompositionProps> = ({
@@ -83,8 +102,8 @@ const PlayerSequence: React.FC<{
           <CountryOpener country={player.country} accent={accent} backdrop={backdrop} />
         </Series.Sequence>
 
-        {/* Player clip — the video ENDS here, no outro */}
-        <Series.Sequence durationInFrames={Math.round(fps * CLIP_SECONDS)}>
+        {/* Player clip — length driven by the clip itself; video ENDS here */}
+        <Series.Sequence durationInFrames={Math.round(fps * clipSeconds(player))}>
           <PlayerClip player={player} template={template} />
         </Series.Sequence>
       </Series>

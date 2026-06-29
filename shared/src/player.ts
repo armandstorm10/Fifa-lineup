@@ -10,4 +10,5 @@ export interface Player {
   shirtNumber: number;    // 1–99
   clipPath: string;       // storage key (local path or S3 key)
   processedClipPath?: string; // set after background removal
+  durationInSeconds?: number; // probed clip length; drives render duration
 }
