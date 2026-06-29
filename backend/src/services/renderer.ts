@@ -71,7 +71,19 @@ function buildCompositionProps(job: RenderJob): object {
     aspectRatio: job.aspectRatio,
     watermark: job.watermark,
     resolution: job.resolution,
+    // Only enable the crowd-cheer bed if the asset is actually present, so a
+    // missing file never hard-fails the render.
+    crowdAudio: crowdAudioAvailable(),
   };
+}
+
+// The crowd-cheer asset lives in the remotion workspace's public dir.
+const CROWD_AUDIO_PATH = path.resolve(
+  __dirname,
+  "../../../remotion/public/audio/397434_foolboymedia__crowd-cheer.wav"
+);
+function crowdAudioAvailable(): boolean {
+  return fs.existsSync(CROWD_AUDIO_PATH);
 }
 
 // Returns the local path of the rendered MP4

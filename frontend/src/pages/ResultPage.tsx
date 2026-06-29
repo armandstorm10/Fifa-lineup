@@ -6,6 +6,7 @@ export default function ResultPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
   const [job, setJob] = useState<RenderJob | null>(null);
+  const [downloaded, setDownloaded] = useState(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -41,7 +42,12 @@ export default function ResultPage() {
 
       <div style={styles.actions}>
         {job.outputUrl && (
-          <a href={job.outputUrl} download={`lineupai-${jobId}.mp4`} style={styles.dlBtn}>
+          <a
+            href={job.outputUrl}
+            download={`lineupai-${jobId}.mp4`}
+            style={styles.dlBtn}
+            onClick={() => setDownloaded(true)}
+          >
             Download MP4
           </a>
         )}
@@ -49,6 +55,12 @@ export default function ResultPage() {
           Share on WhatsApp
         </a>
       </div>
+
+      {downloaded && (
+        <div style={styles.tip}>
+          🎵 Pro tip: Add a trending song on TikTok or Reels for more reach!
+        </div>
+      )}
 
       <button style={styles.again} onClick={() => navigate("/")}>Create another →</button>
     </div>
@@ -66,4 +78,5 @@ const styles: Record<string, React.CSSProperties> = {
   dlBtn: { display: "block", background: "var(--green)", color: "#fff", borderRadius: "10px", padding: "0.875rem", textAlign: "center", textDecoration: "none", fontWeight: 700 },
   shareBtn: { display: "block", background: "#25D366", color: "#fff", borderRadius: "10px", padding: "0.875rem", textAlign: "center", textDecoration: "none", fontWeight: 700 },
   again: { background: "transparent", border: "1px solid #374151", color: "var(--white)", borderRadius: "10px", padding: "0.75rem 2rem", fontWeight: 600 },
+  tip: { background: "rgba(255,215,0,0.1)", border: "1px solid var(--gold)", borderRadius: "10px", padding: "0.875rem 1rem", textAlign: "center", fontSize: "0.95rem", fontWeight: 600, width: "100%" },
 };

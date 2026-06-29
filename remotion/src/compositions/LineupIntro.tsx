@@ -1,9 +1,19 @@
-import { AbsoluteFill, Series, useVideoConfig } from "remotion";
+import {
+  AbsoluteFill,
+  Audio,
+  Series,
+  interpolate,
+  staticFile,
+  useVideoConfig,
+} from "remotion";
 import { z } from "zod";
 import { Player, Template, AspectRatio, Resolution } from "@lineupai/shared";
 import { CountryOpener } from "./scenes/CountryOpener";
 import { PlayerClip } from "./scenes/PlayerClip";
 import { WatermarkOverlay } from "./scenes/WatermarkOverlay";
+
+// Crowd-cheer bed. Must live under remotion/public so renders are self-contained.
+export const CROWD_AUDIO_FILE = "audio/397434_foolboymedia__crowd-cheer.wav";
 
 // Per-player timing (seconds). The clip ENDS on the player scene — no outro.
 export const OPENER_SECONDS = 1;
@@ -56,6 +66,9 @@ export const lineupIntroSchema = z.object({
   aspectRatio: z.enum(["9:16", "16:9"]),
   watermark: z.boolean(),
   resolution: z.union([z.literal(480), z.literal(1080)]),
+  // Set by the backend only when the crowd-cheer asset is present, so a missing
+  // file never hard-fails the render.
+  crowdAudio: z.boolean().optional(),
 });
 
 export type CompositionProps = {
@@ -64,6 +77,7 @@ export type CompositionProps = {
   aspectRatio: AspectRatio;
   watermark: boolean;
   resolution: Resolution;
+  crowdAudio?: boolean;
 };
 
 // Drives the total render length from the clips themselves — no fixed cap.
@@ -77,10 +91,28 @@ export const calculateLineupMetadata = ({ props }: { props: CompositionProps }) 
   return { durationInFrames, fps: FPS };
 };
 
+// Crowd-cheer bed: plays from frame 0, full volume, fading out over the last ~1s.
+const CrowdAudio: React.FC = () => {
+  const { durationInFrames, fps } = useVideoConfig();
+  const fade = Math.min(Math.round(fps * 1), durationInFrames);
+  return (
+    <Audio
+      src={staticFile(CROWD_AUDIO_FILE)}
+      volume={(f) =>
+        interpolate(f, [durationInFrames - fade, durationInFrames], [1, 0], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+        })
+      }
+    />
+  );
+};
+
 export const LineupIntro: React.FC<CompositionProps> = ({
   players,
   template,
   watermark,
+  crowdAudio,
 }) => {
   return (
     <AbsoluteFill style={{ background: "#0A0E1A" }}>
@@ -88,6 +120,7 @@ export const LineupIntro: React.FC<CompositionProps> = ({
       {players.map((player) => (
         <PlayerSequence key={player.id} player={player} template={template} />
       ))}
+      {crowdAudio && <CrowdAudio />}
       {watermark && <WatermarkOverlay />}
     </AbsoluteFill>
   );
